@@ -1,1 +1,80 @@
+name: Build Binary Artifacts
 
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-packages:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-14
+            artifact_name: mariadb-connector-c-macos-arm64
+            cmake_args: >-
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo
+              -DWITH_EXTERNAL_ZLIB=ON
+            need_openssl: true
+
+          - name: Windows x64
+            os: windows-2025
+            artifact_name: mariadb-connector-c-windows-x64
+            cmake_args: >-
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo
+              -DWITH_CURL=ON
+
+          - name: Linux x64
+            os: ubuntu-24.04
+            artifact_name: mariadb-connector-c-linux-x64
+            cmake_args: >-
+              -DCMAKE_BUILD_TYPE=RelWithDebInfo
+              -DWITH_EXTERNAL_ZLIB=ON
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libssl-dev
+
+      - name: Install OpenSSL (macOS)
+        if: runner.os == 'macOS' && matrix.need_openssl == true
+        shell: bash
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja ${{ matrix.cmake_args }}
+
+      - name: Build
+        shell: bash
+        run: |
+          cmake --build build --config RelWithDebInfo --parallel
+
+      - name: Package
+        shell: bash
+        run: |
+          cpack --config build/CPackConfig.cmake -B build
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          if-no-files-found: error
+          path: |
+            build/*.zip
+            build/*.tgz
+            build/*.tar.gz
