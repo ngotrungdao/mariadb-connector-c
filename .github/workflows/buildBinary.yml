@@ -118,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          if [ -z "$(find runtime-staging/lib -maxdepth 1 -type f -print -quit)" ]; then
+          if [ -z "$(find runtime-staging/lib -type f -print -quit)" ]; then
             echo "No runtime libraries were collected for platform ${{ matrix.platform_id }}"
             exit 1
           fi
@@ -163,11 +163,11 @@ jobs:
           mkdir -p mariadb/windows/include mariadb/windows/lib
 
           cp -R runtime/linux/include/. mariadb/linux/include/
-          cp runtime/linux/lib/* mariadb/linux/lib/
+          cp -R runtime/linux/lib/. mariadb/linux/lib/
           cp -R runtime/mac/include/. mariadb/mac/include/
-          cp runtime/mac/lib/* mariadb/mac/lib/
+          cp -R runtime/mac/lib/. mariadb/mac/lib/
           cp -R runtime/windows/include/. mariadb/windows/include/
-          cp runtime/windows/lib/* mariadb/windows/lib/
+          cp -R runtime/windows/lib/. mariadb/windows/lib/
 
       - name: Upload bundled runtime artifact
         uses: actions/upload-artifact@v4
