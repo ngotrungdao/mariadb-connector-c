@@ -86,7 +86,7 @@ jobs:
           fi
 
           rm -rf pkg-extract runtime-staging
-          mkdir -p pkg-extract runtime-staging/libs
+          mkdir -p pkg-extract runtime-staging/include runtime-staging/lib
           (cd pkg-extract && cmake -E tar xvf "../${archives[0]}" >/dev/null)
 
           package_root="$(find pkg-extract -type f -path '*/include/mariadb/mysql.h' | head -n1 | sed 's#/include/mariadb/mysql.h##')"
@@ -96,26 +96,31 @@ jobs:
             exit 1
           fi
 
-          cp "$package_root/include/mariadb/mysql.h" runtime-staging/mysql.h
+          cp -R "$package_root/include/mariadb/." runtime-staging/include/
 
           case "${{ matrix.platform_id }}" in
             linux)
-              cp "$package_root/lib/mariadb"/*.so* runtime-staging/libs/
+              cp "$package_root/lib/mariadb"/*.so* runtime-staging/lib/
               ;;
             mac)
-              cp "$package_root/lib/mariadb"/*.dylib runtime-staging/libs/
+              cp "$package_root/lib/mariadb"/*.dylib runtime-staging/lib/
               ;;
             windows)
               if compgen -G "$package_root/lib/mariadb/*.dll" > /dev/null; then
-                cp "$package_root/lib/mariadb"/*.dll runtime-staging/libs/
+                cp "$package_root/lib/mariadb"/*.dll runtime-staging/lib/
               fi
               if compgen -G "$package_root/bin/*.dll" > /dev/null; then
-                cp "$package_root/bin"/*.dll runtime-staging/libs/
+                cp "$package_root/bin"/*.dll runtime-staging/lib/
               fi
               ;;
           esac
 
-          if [ -z "$(find runtime-staging/libs -maxdepth 1 -type f -print -quit)" ]; then
+          if [ -z "$(find runtime-staging/include -maxdepth 1 -type f -print -quit)" ]; then
+            echo "No header files were collected for platform ${{ matrix.platform_id }}"
+            exit 1
+          fi
+
+          if [ -z "$(find runtime-staging/lib -maxdepth 1 -type f -print -quit)" ]; then
             echo "No runtime libraries were collected for platform ${{ matrix.platform_id }}"
             exit 1
           fi
@@ -155,14 +160,16 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf mariadb
-          mkdir -p mariadb/linux mariadb/mac mariadb/windows
+          mkdir -p mariadb/linux/include mariadb/linux/lib
+          mkdir -p mariadb/mac/include mariadb/mac/lib
+          mkdir -p mariadb/windows/include mariadb/windows/lib
 
-          cp runtime/linux/mysql.h mariadb/linux/mysql.h
-          cp runtime/linux/mysql.h mariadb/mac/mysql.h
-          cp runtime/linux/mysql.h mariadb/windows/mysql.h
-          cp runtime/linux/libs/* mariadb/linux/
-          cp runtime/mac/libs/* mariadb/mac/
-          cp runtime/windows/libs/* mariadb/windows/
+          cp -R runtime/linux/include/. mariadb/linux/include/
+          cp runtime/linux/lib/* mariadb/linux/lib/
+          cp -R runtime/mac/include/. mariadb/mac/include/
+          cp runtime/mac/lib/* mariadb/mac/lib/
+          cp -R runtime/windows/include/. mariadb/windows/include/
+          cp runtime/windows/lib/* mariadb/windows/lib/
 
       - name: Upload bundled runtime artifact
         uses: actions/upload-artifact@v4
