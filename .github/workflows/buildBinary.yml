@@ -100,15 +100,13 @@ jobs:
 
           case "${{ matrix.platform_id }}" in
             linux)
-              cp "$package_root/lib/mariadb"/*.so* runtime-staging/lib/
+              cp -R "$package_root/lib/." runtime-staging/lib/
               ;;
             mac)
-              cp "$package_root/lib/mariadb"/*.dylib runtime-staging/lib/
+              cp -R "$package_root/lib/." runtime-staging/lib/
               ;;
             windows)
-              if compgen -G "$package_root/lib/mariadb/*.dll" > /dev/null; then
-                cp "$package_root/lib/mariadb"/*.dll runtime-staging/lib/
-              fi
+              cp -R "$package_root/lib/." runtime-staging/lib/
               if compgen -G "$package_root/bin/*.dll" > /dev/null; then
                 cp "$package_root/bin"/*.dll runtime-staging/lib/
               fi
