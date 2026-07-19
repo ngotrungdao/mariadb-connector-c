@@ -3,6 +3,10 @@ name: Build Binary Artifacts
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -18,7 +22,6 @@ jobs:
           - name: macOS arm64
             os: macos-14
             platform_id: mac
-            artifact_name: mariadb-connector-c-macos-arm64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
               -DWITH_EXTERNAL_ZLIB=ON
@@ -27,7 +30,6 @@ jobs:
           - name: Windows x64
             os: windows-2025
             platform_id: windows
-            artifact_name: mariadb-connector-c-windows-x64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
               -DWITH_CURL=ON
@@ -35,7 +37,6 @@ jobs:
           - name: Linux x64
             os: ubuntu-24.04
             platform_id: linux
-            artifact_name: mariadb-connector-c-linux-x64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
               -DWITH_EXTERNAL_ZLIB=ON
@@ -71,16 +72,6 @@ jobs:
         shell: bash
         run: |
           cpack --config build/CPackConfig.cmake -B build
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          if-no-files-found: error
-          path: |
-            build/*.zip
-            build/*.tgz
-            build/*.tar.gz
 
       - name: Extract runtime files
         shell: bash
@@ -166,7 +157,9 @@ jobs:
           rm -rf mariadb
           mkdir -p mariadb/linux mariadb/mac mariadb/windows
 
-          cp runtime/linux/mysql.h mariadb/linux/
+          cp runtime/linux/mysql.h mariadb/linux/mysql.h
+          cp runtime/linux/mysql.h mariadb/mac/mysql.h
+          cp runtime/linux/mysql.h mariadb/windows/mysql.h
           cp runtime/linux/libs/* mariadb/linux/
           cp runtime/mac/libs/* mariadb/mac/
           cp runtime/windows/libs/* mariadb/windows/
@@ -177,3 +170,36 @@ jobs:
           name: mariadb-connector-c-runtime-bundle
           if-no-files-found: error
           path: mariadb/**
+
+      - name: Delete intermediate runtime artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const toDelete = new Set([
+              'runtime-linux',
+              'runtime-mac',
+              'runtime-windows',
+              'mariadb-connector-c-macos-arm64',
+              'mariadb-connector-c-windows-x64',
+              'mariadb-connector-c-linux-x64'
+            ]);
+
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+              per_page: 100
+            });
+
+            for (const artifact of data.artifacts) {
+              if (!toDelete.has(artifact.name)) {
+                continue;
+              }
+
+              core.info(`Deleting artifact ${artifact.name} (${artifact.id})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+            }
