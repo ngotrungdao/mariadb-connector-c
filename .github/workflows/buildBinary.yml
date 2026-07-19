@@ -163,17 +163,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf runtime-bundle
-          mkdir -p runtime-bundle/mac runtime-bundle/windows
+          rm -rf mariadb
+          mkdir -p mariadb/linux mariadb/mac mariadb/windows
 
-          cp runtime/linux/mysql.h runtime-bundle/mysql.h
-          cp runtime/linux/libs/* runtime-bundle/
-          cp runtime/mac/libs/* runtime-bundle/mac/
-          cp runtime/windows/libs/* runtime-bundle/windows/
+          cp runtime/linux/mysql.h mariadb/linux/
+          cp runtime/linux/libs/* mariadb/linux/
+          cp runtime/mac/libs/* mariadb/mac/
+          cp runtime/windows/libs/* mariadb/windows/
 
       - name: Upload bundled runtime artifact
         uses: actions/upload-artifact@v4
         with:
           name: mariadb-connector-c-runtime-bundle
           if-no-files-found: error
-          path: runtime-bundle/**
+          path: mariadb/**
