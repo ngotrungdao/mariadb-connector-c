@@ -17,6 +17,7 @@ jobs:
         include:
           - name: macOS arm64
             os: macos-14
+            platform_id: mac
             artifact_name: mariadb-connector-c-macos-arm64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -25,6 +26,7 @@ jobs:
 
           - name: Windows x64
             os: windows-2025
+            platform_id: windows
             artifact_name: mariadb-connector-c-windows-x64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -32,6 +34,7 @@ jobs:
 
           - name: Linux x64
             os: ubuntu-24.04
+            platform_id: linux
             artifact_name: mariadb-connector-c-linux-x64
             cmake_args: >-
               -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -78,3 +81,99 @@ jobs:
             build/*.zip
             build/*.tgz
             build/*.tar.gz
+
+      - name: Extract runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          archives=(build/*.zip build/*.tgz build/*.tar.gz)
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "No package archive found in build directory"
+            exit 1
+          fi
+
+          rm -rf pkg-extract runtime-staging
+          mkdir -p pkg-extract runtime-staging/libs
+          (cd pkg-extract && cmake -E tar xvf "../${archives[0]}" >/dev/null)
+
+          package_root="$(find pkg-extract -type f -path '*/include/mariadb/mysql.h' | head -n1 | sed 's#/include/mariadb/mysql.h##')"
+          if [ -z "$package_root" ]; then
+            echo "Could not find include/mariadb/mysql.h in extracted package"
+            find pkg-extract -maxdepth 5 -type d
+            exit 1
+          fi
+
+          cp "$package_root/include/mariadb/mysql.h" runtime-staging/mysql.h
+
+          case "${{ matrix.platform_id }}" in
+            linux)
+              cp "$package_root/lib/mariadb"/*.so* runtime-staging/libs/
+              ;;
+            mac)
+              cp "$package_root/lib/mariadb"/*.dylib runtime-staging/libs/
+              ;;
+            windows)
+              if compgen -G "$package_root/lib/mariadb/*.dll" > /dev/null; then
+                cp "$package_root/lib/mariadb"/*.dll runtime-staging/libs/
+              fi
+              if compgen -G "$package_root/bin/*.dll" > /dev/null; then
+                cp "$package_root/bin"/*.dll runtime-staging/libs/
+              fi
+              ;;
+          esac
+
+          if [ -z "$(find runtime-staging/libs -maxdepth 1 -type f -print -quit)" ]; then
+            echo "No runtime libraries were collected for platform ${{ matrix.platform_id }}"
+            exit 1
+          fi
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.platform_id }}
+          if-no-files-found: error
+          path: runtime-staging/**
+
+  bundle-runtime:
+    name: Bundle Runtime Headers And Libs
+    needs: build-packages
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download Linux runtime artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: runtime-linux
+          path: runtime/linux
+
+      - name: Download macOS runtime artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: runtime-mac
+          path: runtime/mac
+
+      - name: Download Windows runtime artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: runtime-windows
+          path: runtime/windows
+
+      - name: Assemble final runtime folder
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf runtime-bundle
+          mkdir -p runtime-bundle/mac runtime-bundle/windows
+
+          cp runtime/linux/mysql.h runtime-bundle/mysql.h
+          cp runtime/linux/libs/* runtime-bundle/
+          cp runtime/mac/libs/* runtime-bundle/mac/
+          cp runtime/windows/libs/* runtime-bundle/windows/
+
+      - name: Upload bundled runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mariadb-connector-c-runtime-bundle
+          if-no-files-found: error
+          path: runtime-bundle/**
