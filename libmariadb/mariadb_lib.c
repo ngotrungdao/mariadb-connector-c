@@ -1161,7 +1161,7 @@ static my_bool ma_get_rset_field_lengths(MYSQL_ROW row, unsigned int field_count
 MYSQL_FIELD *
 unpack_fields(const MYSQL *mysql,
               MYSQL_DATA *data, MA_MEM_ROOT *alloc, uint fields,
-	      my_bool default_value)
+              my_bool default_value)
 {
   MYSQL_ROWS	*row;
   MYSQL_FIELD	*field,*result;
@@ -1174,7 +1174,7 @@ unpack_fields(const MYSQL *mysql,
 
   for (row=data->data; row ; row = row->next,field++)
   {
-    unsigned long lengths[9];
+    unsigned long lengths[9]= {0};
 
     if (field >= result + fields)
       goto error;
@@ -1200,6 +1200,13 @@ unpack_fields(const MYSQL *mysql,
           ma_field_extension_init_type_info(alloc, ext, row->data[i], len);
       }
       i++;
+    }
+
+    /* Ensure row->data pointers for the binary metadata field exist */
+    if (!row->data[i] || (size_t)(row->data[i] - row->data[0]) + 12 > row->length)
+    {
+      SET_CLIENT_ERROR((MYSQL *)mysql, CR_MALFORMED_PACKET, SQLSTATE_UNKNOWN, 0);
+      goto error;
     }
 
     p= (char *)row->data[i];
@@ -1273,6 +1280,7 @@ MYSQL_DATA *mthd_my_read_rows(MYSQL *mysql,MYSQL_FIELD *mysql_fields,
 
   while (*(cp=net->read_pos) != 254 || pkt_len >= 8)
   {
+    uchar *end_cp;
     result->rows++;
     if (!(cur= (MYSQL_ROWS*) ma_alloc_root(&result->alloc,
 					    sizeof(MYSQL_ROWS))) ||
@@ -1286,10 +1294,16 @@ MYSQL_DATA *mthd_my_read_rows(MYSQL *mysql,MYSQL_FIELD *mysql_fields,
     }
     *prev_ptr=cur;
     prev_ptr= &cur->next;
+    end_cp= net->read_pos + pkt_len;
+    cur->length= pkt_len;
     to= (char*) (cur->data+fields+1);
     end_to=to+fields+pkt_len-1;
     for (field=0 ; field < fields ; field++)
     {
+      if (cp >= end_cp) {
+          cur->data[field]= 0;
+          continue;
+      }
       if ((len=(ulong) net_field_length(&cp)) == NULL_LENGTH)
       {						/* null field */
         cur->data[field] = 0;
@@ -1297,10 +1311,12 @@ MYSQL_DATA *mthd_my_read_rows(MYSQL *mysql,MYSQL_FIELD *mysql_fields,
       else
       {
         cur->data[field] = to;
-        if (len > (ulong)(end_to - to) || to > end_to)
+        if (len > (ulong)(end_to - to) ||
+            to > end_to ||
+            len > (ulong)(end_cp - cp))
         {
           free_rows(result);
-          SET_CLIENT_ERROR(mysql, CR_UNKNOWN_ERROR, SQLSTATE_UNKNOWN, 0);
+          SET_CLIENT_ERROR(mysql, CR_MALFORMED_PACKET, SQLSTATE_UNKNOWN, 0);
           return(0);
         }
         memcpy(to,(char*) cp,len); to[len]=0;
@@ -1437,6 +1453,7 @@ mysql_init(MYSQL *mysql)
                                        ? WAIT_FOR_QUERY : ALWAYS_ACCEPT;
   mysql->options.reconnect= 0;
   mysql->options.extension->max_columns= MAX_RESULT_COLUMNS;
+  FIX_SSL_VERIFY_SERVER_CERT(&mysql->options);
   return mysql;
 error:
   if (mysql->free_me)
